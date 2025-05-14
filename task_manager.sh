@@ -15,7 +15,6 @@ declare stat_starttime=21   #Index in array allocated for extracting start time 
 declare stat_virt=22        #Index in array allocated for extracting VIRTUAL MEMORY
 
 declare first_element=0
-declare zero=0.0
 
 declare read_from_stat=""
 declare read_from_uptime=""
@@ -23,36 +22,31 @@ declare read_from_uptime=""
 declare percentage=100
 declare kb_size=1024        #Size to convert B to KB
 declare clk_tck=$(getconf CLK_TCK)
-#clk_tck=$(echo "$clk_tck + $zero" | bc -l)
 
 declare time_by_process_clk
-#declare time_by_process_sec
 declare starttime_clk
-#declare starttime_sec
-#declare time_elapsed_sec
-declare time_elapsed_clk
 declare cpu_percentage
 
-declare output_display=()
+declare tasks_array=()
 #================================================================================================
 
-print_format()
+adjust_line_format()
 {
     index=$1
+    local line=""   #This variable will hold the line string that will be our output (Anything passed by positional parameters but formatted the correct way)
     for index; do   #This syntax here is simple: We assigned index with the first positional parameter "$1" and THEN we looped on it, it implicitly looped on "$@" which is an array of ALL positional parameters passed to the function
-        printf "%s" "$index"    #Simply print the $1 $2 $3....$n, etc (whatever is inside the positional parameter)
+        line="${line}$index"    #Simply, we're appending strings (so if we have "Hello " & "World", the new line will be "Hello World")
         for spaces in $(seq 0 "$((TASK_MANAGER_WHITESPACE - ${#index}))" ); do  #Starting from 0 till (WHITESPACE - size of string inside the positional parameter)
-            printf ' '
+            line="${line} "     #Here, we're appending the already existing line with a space ' ', you can notice it.
         done 
-        if [[ "$index" == "${!#}" ]]; then  #${!#} represents the end of all positional paraemeters. Basically I'm saying: if you reach the end, print a '\n'
-            printf "\n"
-        fi
     done
+    echo "$line"    #Return the formatted line
 }
 
 while true; do
-    clear   #Needs to be changed to a buffer
-    print_format "PID" "USER" "PPID" "VIRT (KB)" "CPU%" "NAME"
+    #adjust_line_format "PID" "USER" "PPID" "VIRT (KB)" "CPU%" "NAME"
+    tasks_array=()  #Clear the array, since this is a while loop, the array will forever append & the output won't be correct.
+    tasks_array+=("$(adjust_line_format "PID" "USER" "PPID" "VIRT (KB)" "CPU%" "NAME")")
 
     #=====================================STAT PARSING===============================================
     for filename in $(ls -1 /proc/ | tr '\n' ' ' | grep -o -E '[0-9]+'); do #For this line, we're simply using ls to list, then passing the result to have whitespaces, then removing everything that is not between 0-9 (i.e. not a process)
@@ -71,7 +65,8 @@ while true; do
             #Now, this has removed both the parentheses on the process's name
 
             time_by_process_clk=$(("${proc_stat_array[stat_utime]}" + "${proc_stat_array[stat_stime]}"))
-            time_by_process_sec=$(echo "scale=2; $time_by_process_clk / $clk_tck" | bc -l)
+            time_by_process_sec=$(echo "scale=2; $time_by_process_clk / $clk_tck" | bc -l)  #bc stands for basic calculator because bash doesn't handle floating points. scale=2 is for a 2-decimal precision after the decimal point
+            #The echo is therefore printed, but instead the screen (stdout), we're piping it to the basic calculate 'bc'
             read_from_uptime=$(cat /proc/uptime)   #'cat' returns a string, so we're storing it in a string variable
             IFS=' ' read -ra system_uptime_array <<< "$read_from_uptime"
             system_uptime_sec=${system_uptime_array[$first_element]}
@@ -86,17 +81,17 @@ while true; do
             proc_user=$(cat /proc/"$filename"/loginuid | getent passwd)    #use 'cat' to get the user id THEN, search the ID & store it in proc_user using 'getent passwd'
             proc_user=${proc_user%%:*}      #Multiple things show in proc_user, extract the first word only which is the user's name (i.e. till the ':')
 
-            #printf "%f * %d = %f\nStart time = %llu\tTime Elapsed = %llu\n" "$system_uptime_sec" "$clk_tck" "$system_uptime_clk" "$starttime_clk" "$time_elapsed_clk"
-            print_format "${proc_stat_array[$stat_pid]}" "$proc_user" "${proc_stat_array[$stat_ppid]}" "${proc_stat_array[$stat_virt]}" "$cpu_percentage" "${proc_stat_array[$stat_name]}"
+            tasks_array+=("$(adjust_line_format "${proc_stat_array[$stat_pid]}" "$proc_user" "${proc_stat_array[$stat_ppid]}" "${proc_stat_array[$stat_virt]}" "$cpu_percentage" "${proc_stat_array[$stat_name]}")")
         #================================================================================================
         else
             continue
         fi
     done
     #================================================================================================
+    clear   #Needs to be changed to a buffer?
+    printf "%s\n" "${tasks_array[@]}"
     sleep 1 #Needs to be changed
 done
-
 
 #TODO: Make it interactive & real-time
 #TODO: Add killing signals & options
